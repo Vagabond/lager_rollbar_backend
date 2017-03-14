@@ -55,7 +55,7 @@ init(Config) when is_list(Config) ->
 
 %% @private
 init2(Config) ->
-    case hackney:connect(hackney_tcp, "https://api.rollbar.com", 443, []) of
+    case hackney:connect(hackney_ssl, <<"api.rollbar.com">>, 443, []) of
         {ok, Conn} ->
             try parse_level(proplists:get_value(level, Config)) of
                 Lvl ->
@@ -91,8 +91,9 @@ handle_call(_Request, State) ->
 handle_event({log, Message}, #state{level=Level, handle=Conn} = State) ->
     case lager_util:is_loggable(Message, Level, ?MODULE) of
         true ->
-            hackney:send_request(Conn, {post, <<"/api/1/item">>, [], to_json(Message, State)}),
-            {ok, State};
+            {ok, 200, _Headers, Conn2} = hackney:send_request(Conn, {post, <<"/api/1/item/">>, [], JSON}),
+            %{ok, Body1} = hackney:body(Conn2),
+            {ok, State#state{handle=Conn2}};
         false ->
             {ok, State}
     end;
@@ -111,14 +112,14 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-convert_level(?DEBUG) -> debug;
-convert_level(?INFO) -> info;
-convert_level(?NOTICE) -> info;
-convert_level(?WARNING) -> warning;
-convert_level(?ERROR) -> error;
-convert_level(?CRITICAL) -> critical;
-convert_level(?ALERT) -> critical;
-convert_level(?EMERGENCY) -> critical.
+convert_level(debug) -> debug;
+convert_level(info) -> info;
+convert_level(notice) -> info;
+convert_level(warning) -> warning;
+convert_level(error) -> error;
+convert_level(critical) -> critical;
+convert_level(alert) -> critical;
+convert_level(emergency) -> critical.
 
 parse_level(Level) ->
     try lager_util:config_to_mask(Level) of
@@ -154,6 +155,7 @@ to_json(Message, #state{api_key=APIKey, config=Config, version=Version}) ->
                            {data, 
                             [
                              {environment, proplists:get_value(environment, Config, <<"production">>)},
+                             {fingerprint, fingerprint(Message)},
                              {body, [
                                      {message, [
                                                 {body, list_to_binary(lager_msg:message(Message))} |
@@ -163,7 +165,6 @@ to_json(Message, #state{api_key=APIKey, config=Config, version=Version}) ->
                                      {level, convert_level(lager_msg:severity(Message))},
                                      {language, erlang},
                                      %% TODO UUID
-                                     {fingerprint, fingerprint(Message)},
                                      {notifier, [
                                                  {name, lager_rollbar_backend},
                                                  {version, Version}
