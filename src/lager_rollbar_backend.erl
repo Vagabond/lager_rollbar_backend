@@ -91,6 +91,7 @@ handle_call(_Request, State) ->
 handle_event({log, Message}, #state{level=Level, handle=Conn} = State) ->
     case lager_util:is_loggable(Message, Level, ?MODULE) of
         true ->
+            JSON = to_json(Message, State),
             {ok, 200, _Headers, Conn2} = hackney:send_request(Conn, {post, <<"/api/1/item/">>, [], JSON}),
             %{ok, Body1} = hackney:body(Conn2),
             {ok, State#state{handle=Conn2}};
